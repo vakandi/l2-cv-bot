@@ -1,28 +1,38 @@
-# WIP
+# L2 CV Bot - Modern Windows 10/11 Edition
 
-Simple Lineage II bot that uses CV to find possible targets and monitor HP/MP/CP.
+Simple Lineage II bot that uses Computer Vision (OpenCV) to find possible targets and monitor HP/MP/CP. **Updated for modern Windows 10/11 with latest libraries and no driver dependencies!**
 
 [![Video](preview.png)](https://youtu.be/nNgeUZIxllY "Demonstration video")
+
+## ✨ What's New in This Version
+
+- 🚀 **No Driver Installation Required** - Uses native Windows APIs instead of Interceptor driver
+- 🔧 **Modern Build System** - Updated for Visual Studio 2022 and latest CMake
+- 📚 **Latest Libraries** - Compatible with OpenCV 4.x and modern C++ standards
+- 🖥️ **Enhanced Debug Overlay** - New GDI+ based overlay system for better debugging
+- 📖 **Comprehensive Setup Guide** - Step-by-step instructions for modern Windows
 
 ## Features
 
 * Near and far NPC detection
 * HP/MP/CP monitoring
-* Mouse and keyboard emulation
+* Mouse and keyboard emulation (no driver required!)
+* Modern debug overlay system
 * ~~Stuck resolving~~
 * ~~TTS alarm subsystem (captcha, low HP, CP decreasing, etc.)~~
 * ~~Custom behavior support (LUA scripts)~~
 * ~~Buffs/debuffs monitoring~~
 
-## How to use
+## Quick Start
 
-**[Interception](https://github.com/oblitum/Interception) driver is required for mouse and keyboard emulation.**
+**No driver installation needed!** Just build and run.
 
-1. Install [Interception](https://github.com/oblitum/Interception/releases) driver (start `cmd.exe` as Administrator, then run `install-interception.exe /install`) and reboot.
-2. Run Lineage II client, select character and teleport to any exp/farm location.
-3. Run `run.bat "<title of the Lineage II client window>"`.
-4. HP/CP/MP bars must be 100% at the moment of bot start, but if not, you should wait until they will be 100% and then press Space to reset bars position.
-5. To stop press ESC or move mouse.
+1. **Build the project**: Run `build-modern.bat` (see [Building](#building) section)
+2. **Start Lineage II** and log into your character
+3. **Teleport to a farming location** (bot works best in open areas)
+4. **Run the bot**: `run.bat "<title of the Lineage II client window>"`
+5. **Reset bars if needed**: Press Space if HP/MP/CP bars aren't at 100% when starting
+6. **Stop the bot**: Press ESC or move mouse
 
 Default keyboard layout:
 
@@ -56,12 +66,39 @@ Current version developed and tested using Windows 10 and Gracia Epilogue client
 
 ## Building
 
-Using CMake and MSVC (Visual Studio 2017) on Windows:
+### Prerequisites
+- **Visual Studio 2022** (Community edition is fine)
+- **CMake 3.20+** 
+- **OpenCV 4.x** for Windows
 
-1. [Download](https://cmake.org/download/) and install CMake.
-2. [Download](https://opencv.org/releases.html) OpenCV binaries or [build](https://github.com/opencv/opencv) OpenCV manually (tested with OpenCV 3.4.2).
-3. Set `OpenCV_DIR` environment variable to path of the OpenCV binaries.
-4. Run `build-vs15x64.bat` for 64-bit OpenCV or `build-vs15x32.bat` for 32-bit OpenCV (or `build.bat` to provide custom arch, project generator and configuration).
-5. Built executable and dependent dynamic libraries can be found in `build-<arch>/<configuration>` directory (e.g. `build-x64/Release`).
+### Quick Build (Recommended)
+```cmd
+# Set OpenCV path
+set OpenCV_DIR=C:\opencv\build
 
-*If Interception library building fails, try to install [WDK](https://www.microsoft.com/en-us/download/details.aspx?id=11800).*
+# Build with modern script
+build-modern.bat
+```
+
+### Manual Build
+```cmd
+# Configure
+cmake -H. -Bbuild -G "Visual Studio 17 2022" -A x64
+
+# Build
+cmake --build build --config Release --target INSTALL
+```
+
+### Build Output
+Built executable and dependencies will be in `build-modern\Release\` directory.
+
+## Detailed Setup
+
+For comprehensive setup instructions, see [SETUP_GUIDE.md](SETUP_GUIDE.md).
+
+## Technical Details
+
+- **Input Handling**: Uses native Windows APIs (`SetWindowsHookEx`, `SendInput`) - no drivers needed
+- **Graphics**: GDI+ based debug overlay system
+- **Compatibility**: Windows 10/11, Visual Studio 2022, OpenCV 4.x
+- **Architecture**: 64-bit builds recommended

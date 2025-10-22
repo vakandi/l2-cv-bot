@@ -1,6 +1,6 @@
 # L2 CV Bot - Modern Windows 10/11 Setup Guide
 
-This guide will help you build and run the Lineage II Computer Vision Bot on modern Windows 10/11 systems.
+This guide will help you build and run the Lineage II Computer Vision Bot on modern Windows 10/11 systems. **No driver installation required!**
 
 ## What This Project Does
 
@@ -8,7 +8,7 @@ This is a **Lineage II bot** that uses computer vision (OpenCV) to:
 - Automatically detect NPCs and targets in the game
 - Monitor HP/MP/CP bars
 - Automate combat actions (attack, spoil, sweep, etc.)
-- Use mouse and keyboard emulation for game control
+- Use mouse and keyboard emulation for game control (via native Windows APIs)
 
 ## Prerequisites
 
@@ -29,12 +29,8 @@ This is a **Lineage II bot** that uses computer vision (OpenCV) to:
   set OpenCV_DIR=C:\opencv\build
   ```
 
-### 4. Install Interception Driver (Required!)
-- Download [Interception](https://github.com/oblitum/Interception/releases)
-- **Run Command Prompt as Administrator**
-- Navigate to the Interception folder
-- Run: `install-interception.exe /install`
-- **Reboot your computer** (this is required!)
+### 4. ✅ No Driver Installation Required!
+Unlike the original version, this modernized bot uses native Windows APIs for input handling, so **no Interceptor driver installation is needed**!
 
 ## Building the Project
 
@@ -64,6 +60,8 @@ cmake --build build --config Release --target INSTALL
    ```
    (Replace "Lineage II" with your actual game window title)
 
+**Note**: No driver installation or admin privileges required!
+
 ## Controls
 
 - **Space** - Reset HP/MP/CP bar positions (if not at 100% when starting)
@@ -89,9 +87,9 @@ cmake --build build --config Release --target INSTALL
 - **"Visual Studio not found"**: Install Visual Studio 2022 with C++ workload
 
 ### Runtime Issues
-- **"Interception driver not found"**: Install the Interception driver and reboot
 - **"Can't find window"**: Make sure Lineage II is running and use the correct window title
 - **Bot not detecting targets**: Adjust color thresholds in `run.bat` for your specific game client
+- **Input not working**: Make sure the bot has focus and Lineage II window is active
 
 ### Game Compatibility
 - Originally developed for **Gracia Epilogue** client
@@ -124,9 +122,11 @@ Edit `src/Brain.cpp` to change:
 - Visual Studio 2022
 - CMake 3.20+
 - OpenCV 4.x
-- Interception driver
+- **No driver installation required!**
 
 📝 **Project Status**
-- Last updated: 2017 (7 years ago)
-- Updated for modern Windows 10/11 compatibility
+- Originally created: 2017 (7 years ago)
+- **Modernized**: 2025 for Windows 10/11 compatibility
+- **Major Update**: Removed Interceptor dependency, added native Windows API support
 - OpenCV APIs updated for latest versions
+- Enhanced with modern debug overlay system
