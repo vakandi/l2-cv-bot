@@ -5,144 +5,146 @@
 #define WIN32_MEAN_AND_LEAN
 #include <Windows.h>
 
+// Static instance pointer for hook callbacks
+Intercept* Intercept::s_instance = nullptr;
+
 Intercept::Intercept() :
-    m_screen_width          {::GetSystemMetrics(SM_CXVIRTUALSCREEN)},
-    m_screen_height         {::GetSystemMetrics(SM_CYVIRTUALSCREEN)},
-    m_context               {},
-    m_keyboard_device       {0},
-    m_mouse_device          {0},
-    m_pressed_keyboard_keys {},
-    m_pressed_mouse_buttons {},
-    m_mouse_delta           {},
-    m_keyboard_mtx          {},
-    m_mouse_mtx             {}
+    m_mouse_delta{0, 0},
+    m_pressed_keys{},
+    m_pressed_mouse_buttons{},
+    m_keyboard_hook(nullptr),
+    m_mouse_hook(nullptr)
 {
-    const auto context = ::interception_create_context();
+    // Set static instance for callbacks
+    s_instance = this;
+    
+    // Try to install low-level hooks, but don't fail if they don't work
+    m_keyboard_hook = SetWindowsHookEx(WH_KEYBOARD_LL, KeyboardHookProc, GetModuleHandle(nullptr), 0);
+    m_mouse_hook = SetWindowsHookEx(WH_MOUSE_LL, MouseHookProc, GetModuleHandle(nullptr), 0);
+    
+    // Don't throw error - hooks are optional for basic functionality
+    // if (!m_keyboard_hook || !m_mouse_hook) {
+    //     throw InterceptionDriverNotFoundError();
+    // }
+}
 
-    if (context == nullptr) {
-        throw InterceptionDriverNotFoundError{};
+Intercept::~Intercept()
+{
+    if (m_keyboard_hook) {
+        UnhookWindowsHookEx(m_keyboard_hook);
     }
+    if (m_mouse_hook) {
+        UnhookWindowsHookEx(m_mouse_hook);
+    }
+    s_instance = nullptr;
+}
 
-    m_context = {context, InterceptionContextDestroyer{}};
+void Intercept::SendMouseMoveEvent(const Point &point)
+{
+    SetCursorPos(point.x, point.y);
+}
 
-    // find default keyboard device
-    for (::InterceptionDevice device = 0; device < INTERCEPTION_MAX_KEYBOARD; ++device) {
-        char hardware_id[512]; // not used
-
-        if (::interception_get_hardware_id(context, INTERCEPTION_KEYBOARD(device), hardware_id, sizeof(hardware_id)) > 0) {
-            m_keyboard_device = INTERCEPTION_KEYBOARD(device);
+void Intercept::SendMouseButtonEvent(MouseButtonEvent event)
+{
+    DWORD flags = 0;
+    DWORD data = 0;
+    
+    switch (event) {
+        case MouseButtonEvent::LeftDown:
+            flags = MOUSEEVENTF_LEFTDOWN;
             break;
-        }
-    }
-
-    // find default mouse device
-    for (::InterceptionDevice device = 0; device < INTERCEPTION_MAX_MOUSE; ++device) {
-        char hardware_id[512]; // not used
-
-        if (::interception_get_hardware_id(context, INTERCEPTION_MOUSE(device), hardware_id, sizeof(hardware_id)) > 0) {
-            m_mouse_device = INTERCEPTION_MOUSE(device);
+        case MouseButtonEvent::LeftUp:
+            flags = MOUSEEVENTF_LEFTUP;
             break;
-        }
+        case MouseButtonEvent::RightDown:
+            flags = MOUSEEVENTF_RIGHTDOWN;
+            break;
+        case MouseButtonEvent::RightUp:
+            flags = MOUSEEVENTF_RIGHTUP;
+            break;
     }
-
-    // intercept all keyboard and mouse events
-    ::interception_set_filter(context, ::interception_is_keyboard, INTERCEPTION_FILTER_KEY_ALL);
-    ::interception_set_filter(context, ::interception_is_mouse, INTERCEPTION_FILTER_MOUSE_ALL);
-
-    std::thread([this](::InterceptionContext context) {
-        ::InterceptionDevice device = 0;
-        ::InterceptionStroke stroke = {};
-
-        while (::interception_receive(context, device = ::interception_wait(context), &stroke, 1) > 0) {
-            ::interception_send(context, device, &stroke, 1);
-
-            if (::interception_is_keyboard(device)) {
-                std::lock_guard lock{m_keyboard_mtx};
-                const auto key_stroke = reinterpret_cast<::InterceptionKeyStroke *>(&stroke);
-
-                if (key_stroke->code < m_pressed_keyboard_keys.size()) {
-                    m_pressed_keyboard_keys[key_stroke->code] =
-                        key_stroke->state == INTERCEPTION_KEY_DOWN ||
-                        key_stroke->state == INTERCEPTION_KEY_E0;
-                }
-            } else if (::interception_is_mouse(device)) {
-                std::lock_guard lock{m_mouse_mtx};
-                const auto mouse_stroke = reinterpret_cast<InterceptionMouseStroke *>(&stroke);
-
-                if (mouse_stroke->state != 0) {
-                    m_pressed_mouse_buttons[static_cast<std::size_t>(MouseButton::Left)] =
-                        mouse_stroke->state & INTERCEPTION_MOUSE_LEFT_BUTTON_DOWN;
-                    m_pressed_mouse_buttons[static_cast<std::size_t>(MouseButton::Right)] =
-                        mouse_stroke->state & INTERCEPTION_MOUSE_RIGHT_BUTTON_DOWN;
-                    m_pressed_mouse_buttons[static_cast<std::size_t>(MouseButton::Middle)] =
-                        mouse_stroke->state & INTERCEPTION_MOUSE_MIDDLE_BUTTON_DOWN;
-                    m_pressed_mouse_buttons[static_cast<std::size_t>(MouseButton::Fourth)] =
-                        mouse_stroke->state & INTERCEPTION_MOUSE_BUTTON_4_DOWN;
-                    m_pressed_mouse_buttons[static_cast<std::size_t>(MouseButton::Fifth)] =
-                        mouse_stroke->state & INTERCEPTION_MOUSE_BUTTON_5_DOWN;
-                } else {
-                    m_mouse_delta.x += std::abs(mouse_stroke->x);
-                    m_mouse_delta.y += std::abs(mouse_stroke->y);
-                }
-            }
-        }
-    }, context).detach();
+    
+    mouse_event(flags, 0, 0, data, 0);
 }
 
-void Intercept::SendMouseMoveEvent(const Point &point) const
+void Intercept::SendKeyboardKeyEvent(int code, KeyboardKeyEvent event, bool e0, bool e1)
 {
-    ::InterceptionMouseStroke stroke = {};
-    stroke.flags = INTERCEPTION_MOUSE_MOVE_ABSOLUTE | INTERCEPTION_MOUSE_VIRTUAL_DESKTOP;
-    stroke.x = point.x * 0xFFFF / m_screen_width + 1;
-    stroke.y = point.y * 0xFFFF / m_screen_height + 1;
-    ::interception_send(m_context.get(), m_mouse_device, reinterpret_cast<InterceptionStroke *>(&stroke), 1);
-}
-
-void Intercept::SendMouseButtonEvent(MouseButtonEvent event) const
-{
-    ::InterceptionMouseStroke stroke = {};
-    stroke.state = static_cast<unsigned short>(event);
-    ::interception_send(m_context.get(), m_mouse_device, reinterpret_cast<InterceptionStroke *>(&stroke), 1);
-}
-
-void Intercept::SendKeyboardKeyEvent(int code, KeyboardKeyEvent event, bool e0, bool e1) const
-{
-    const auto state = static_cast<unsigned short>(event);
-
-    ::InterceptionKeyStroke stroke = {};
-    stroke.code = static_cast<unsigned short>(code);
-    stroke.state = state;
-
+    INPUT input = {};
+    input.type = INPUT_KEYBOARD;
+    input.ki.wVk = static_cast<WORD>(code);
+    input.ki.wScan = MapVirtualKey(code, MAPVK_VK_TO_VSC);
+    input.ki.dwFlags = (event == KeyboardKeyEvent::Up) ? KEYEVENTF_KEYUP : 0;
+    
     if (e0) {
-        stroke.state |= INTERCEPTION_KEY_E0;
+        input.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
     }
-
-    if (e1) {
-        stroke.state |= INTERCEPTION_KEY_E1;
-    }
-
-    ::interception_send(m_context.get(), m_keyboard_device, reinterpret_cast<InterceptionStroke *>(&stroke), 1);
+    
+    SendInput(1, &input, sizeof(INPUT));
 }
 
-bool Intercept::MouseButtonPressed(MouseButton button)
+bool Intercept::KeyboardKeyPressed(int code) const
 {
-    std::lock_guard lock{m_mouse_mtx};
-    return m_pressed_mouse_buttons[static_cast<std::size_t>(button)];
+    // Use GetAsyncKeyState for immediate key state checking
+    return (GetAsyncKeyState(code) & 0x8000) != 0;
 }
 
-bool Intercept::KeyboardKeyPressed(int code)
+bool Intercept::MouseButtonPressed(MouseButton button) const
 {
-    std::lock_guard lock{m_keyboard_mtx};
-
-    if (code >= m_pressed_keyboard_keys.size()) {
-        return false;
-    }
-
-    return m_pressed_keyboard_keys[code];
+    // Use GetAsyncKeyState for immediate mouse button state checking
+    int vk_code = (button == MouseButton::Left) ? VK_LBUTTON : VK_RBUTTON;
+    return (GetAsyncKeyState(vk_code) & 0x8000) != 0;
 }
 
-Intercept::Point Intercept::MouseDelta()
+Intercept::Point Intercept::MouseDelta() const
 {
-    std::lock_guard lock{m_mouse_mtx};
+    std::lock_guard<std::mutex> lock(m_mouse_mtx);
     return m_mouse_delta;
+}
+
+LRESULT CALLBACK Intercept::KeyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam)
+{
+    if (nCode >= 0 && s_instance) {
+        KBDLLHOOKSTRUCT* pKeyboard = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
+        int vkCode = pKeyboard->vkCode;
+        
+        std::lock_guard<std::mutex> lock(s_instance->m_keyboard_mtx);
+        
+        if (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) {
+            s_instance->m_pressed_keys[vkCode] = true;
+        } else if (wParam == WM_KEYUP || wParam == WM_SYSKEYUP) {
+            s_instance->m_pressed_keys[vkCode] = false;
+        }
+    }
+    
+    return CallNextHookEx(nullptr, nCode, wParam, lParam);
+}
+
+LRESULT CALLBACK Intercept::MouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
+{
+    if (nCode >= 0 && s_instance) {
+        MSLLHOOKSTRUCT* pMouse = reinterpret_cast<MSLLHOOKSTRUCT*>(lParam);
+        
+        std::lock_guard<std::mutex> lock(s_instance->m_mouse_mtx);
+        
+        switch (wParam) {
+            case WM_LBUTTONDOWN:
+                s_instance->m_pressed_mouse_buttons[0] = true;
+                break;
+            case WM_LBUTTONUP:
+                s_instance->m_pressed_mouse_buttons[0] = false;
+                break;
+            case WM_RBUTTONDOWN:
+                s_instance->m_pressed_mouse_buttons[1] = true;
+                break;
+            case WM_RBUTTONUP:
+                s_instance->m_pressed_mouse_buttons[1] = false;
+                break;
+            case WM_MOUSEMOVE:
+                s_instance->m_mouse_delta.x = pMouse->pt.x;
+                s_instance->m_mouse_delta.y = pMouse->pt.y;
+                break;
+        }
+    }
+    
+    return CallNextHookEx(nullptr, nCode, wParam, lParam);
 }

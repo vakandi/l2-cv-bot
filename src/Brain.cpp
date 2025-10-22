@@ -18,6 +18,19 @@ void Brain::Process()
     m_far_npcs = m_eyes.DetectFarNPCs();
     m_me = m_eyes.DetectMe();
     m_target = m_eyes.DetectTarget();
+    
+    // Debug: Show detection counts every 10 frames
+    static int frame_count = 0;
+    if (++frame_count % 10 == 0) {
+        std::cout << "Detected: " << m_npcs.size() << " NPCs, " << m_far_npcs.size() << " far NPCs";
+        if (m_me.has_value()) {
+            std::cout << ", HP: " << m_me.value().hp << "%, MP: " << m_me.value().mp << "%, CP: " << m_me.value().cp << "%";
+        }
+        if (m_target.has_value()) {
+            std::cout << ", Target HP: " << m_target.value().hp << "%";
+        }
+        std::cout << std::endl;
+    }
 
     if (m_me.has_value()) {
         const auto me = m_me.value();
@@ -111,7 +124,7 @@ void Brain::Process()
     } else if (m_state == State::Attack) {
         if (target.hp > 0) {
             if (m_first_attack) {
-                std::cout << "Attack NPC" << std::endl;
+                std::cout << "Attack NPC (HP: " << target.hp << "%)" << std::endl;
                 m_first_attack = false;
                 m_search_attempt = 0;
                 ClearIgnoredNPCs();
@@ -125,6 +138,7 @@ void Brain::Process()
                 m_hands.Send(250);
             }
         } else if (!LOCKED(1000)) {
+            std::cout << "Target defeated, looking for next target" << std::endl;
             m_first_attack = true;
             const auto npc = SelectedNPC();
 

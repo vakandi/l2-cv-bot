@@ -15,6 +15,7 @@ public:
     static std::optional<Window> Find(const std::string &window_title);
 
     const Rect &Rect() const { return m_rect; }
+    ::HWND Handle() const { return m_hwnd; }
 
     void BringToForeground() const { ::SetForegroundWindow(m_hwnd); }
 

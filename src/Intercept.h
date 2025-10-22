@@ -3,69 +3,64 @@
 #include <memory>
 #include <array>
 #include <mutex>
-
-#include "interception.h"
+#include <windows.h>
 
 class Intercept
 {
 public:
     struct InterceptionDriverNotFoundError : public std::runtime_error
-        { InterceptionDriverNotFoundError() : std::runtime_error("Interception driver not found") {} };
+        { InterceptionDriverNotFoundError() : std::runtime_error("Windows hooks initialization failed") {} };
 
     static constexpr std::size_t KEYBOARD_KEY_MAX = 256;
 
     enum class KeyboardKeyEvent : unsigned short
     {
-        Down    = INTERCEPTION_KEY_DOWN,
-        Up      = INTERCEPTION_KEY_UP
+        Down    = 0,
+        Up      = 1
     };
 
     enum class MouseButtonEvent : unsigned short
     {
-        LeftDown    = INTERCEPTION_MOUSE_LEFT_BUTTON_DOWN,
-        LeftUp      = INTERCEPTION_MOUSE_LEFT_BUTTON_UP,
-        RightDown   = INTERCEPTION_MOUSE_RIGHT_BUTTON_DOWN,
-        RightUp     = INTERCEPTION_MOUSE_RIGHT_BUTTON_UP
+        LeftDown    = 0,
+        LeftUp      = 1,
+        RightDown   = 2,
+        RightUp     = 3
     };
 
-    enum class MouseButton
+    enum class MouseButton : unsigned short
     {
-        Left    = 1,
-        Right   = 2,
-        Middle  = 3,
-        Fourth  = 4,
-        Fifth   = 5,
-
-        Max     = 6
+        Left    = 0,
+        Right   = 1
     };
 
     struct Point { int x, y; };
 
-    Intercept(); // throws InterceptionDriverNotFoundError
+    Intercept();
+    ~Intercept();
 
-    void SendMouseMoveEvent(const Point &point) const;
-    void SendMouseButtonEvent(MouseButtonEvent event) const;
-    void SendKeyboardKeyEvent(int code, KeyboardKeyEvent event, bool e0, bool e1) const;
+    void SendMouseMoveEvent(const Point &point);
+    void SendMouseButtonEvent(MouseButtonEvent event);
+    void SendKeyboardKeyEvent(int code, KeyboardKeyEvent event, bool e0 = false, bool e1 = false);
 
-    bool MouseButtonPressed(MouseButton button);
-    bool KeyboardKeyPressed(int code);
-
-    Point MouseDelta();
+    bool KeyboardKeyPressed(int code) const;
+    bool MouseButtonPressed(MouseButton button) const;
+    Point MouseDelta() const;
 
 private:
-    struct InterceptionContextDestroyer
-    {
-        using pointer = ::InterceptionContext;
-        void operator()(::InterceptionContext context) const { ::interception_destroy_context(context); }
-    };
-
-    int m_screen_width, m_screen_height;
-    std::unique_ptr<::InterceptionContext, InterceptionContextDestroyer> m_context;
-    ::InterceptionDevice m_keyboard_device;
-    ::InterceptionDevice m_mouse_device;
-    std::array<bool, KEYBOARD_KEY_MAX> m_pressed_keyboard_keys;
-    std::array<bool, static_cast<std::size_t>(MouseButton::Max)> m_pressed_mouse_buttons;
     Point m_mouse_delta;
-    std::mutex m_keyboard_mtx;
-    std::mutex m_mouse_mtx;
+    std::array<bool, KEYBOARD_KEY_MAX> m_pressed_keys;
+    std::array<bool, 2> m_pressed_mouse_buttons;
+    mutable std::mutex m_keyboard_mtx;
+    mutable std::mutex m_mouse_mtx;
+    
+    // Windows hook handles
+    HHOOK m_keyboard_hook;
+    HHOOK m_mouse_hook;
+    
+    // Static callback functions for hooks
+    static LRESULT CALLBACK KeyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam);
+    static LRESULT CALLBACK MouseHookProc(int nCode, WPARAM wParam, LPARAM lParam);
+    
+    // Instance pointer for static callbacks
+    static Intercept* s_instance;
 };

@@ -10,11 +10,12 @@
 #include "Eyes.h"
 #include "Hands.h"
 #include "Brain.h"
+#include "DebugOverlay.h"
 
 class Runloop
 {
 public:
-    Runloop(int argc, char* argv[]) : // throws InterceptionDriverNotFoundError
+    Runloop(int argc, char* argv[]) : // throws std::exception
         m_options   {argc, argv},
         m_brain     {m_eyes, m_hands}
     {}
@@ -27,9 +28,11 @@ private:
     ::Eyes m_eyes;
     ::Hands m_hands;
     ::Brain m_brain;
+    ::DebugOverlay m_overlay;
 
     void DrawWorldInfo(cv::Mat &image) const;
-    int ShowDebugWindow(cv::Mat &image);
+    void ShowDebugInfo(cv::Mat &image);
+    void DrawOverlay();
     void ConfigureEyes();
     void ConfigureHands();
     void ConfigureBrain();

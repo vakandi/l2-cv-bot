@@ -30,10 +30,10 @@ find_package(OpenCV REQUIRED)
 target_link_libraries(l2-cv-bot ${OpenCV_LIBS})
 target_include_directories(l2-cv-bot PRIVATE ${OpenCV_HEADERS})
 
-# Interception API library
-add_subdirectory(lib/interception)
-target_link_libraries(l2-cv-bot interception)
-target_include_directories(l2-cv-bot PRIVATE lib/interception)
+# Interception API library - REMOVED (using Windows API instead)
+# add_subdirectory(lib/interception)
+# target_link_libraries(l2-cv-bot interception)
+# target_include_directories(l2-cv-bot PRIVATE lib/interception)
 
 # Bundle executable with DLLs
 if(MSVC)
@@ -49,6 +49,7 @@ endif()
 # Compiler options
 if(MSVC)
     target_compile_options(l2-cv-bot PRIVATE /W4)
+    target_link_libraries(l2-cv-bot gdiplus)
 else()
     target_compile_options(l2-cv-bot PRIVATE -Wall -Wextra -pedantic)
 endif()
