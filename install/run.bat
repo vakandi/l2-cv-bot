@@ -54,6 +54,9 @@ l2-cv-bot.exe ^
     --restore_cp_key    F8  ^
 
     --debug true ^
+    --attack_mode true ^
+    --flee_hp_threshold 30 ^
+    --restore_hp_threshold 70 ^
     --window %1
 
 pause

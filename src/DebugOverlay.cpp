@@ -48,17 +48,17 @@ bool DebugOverlay::initialize(HWND target)
 
     GdiplusStartupInput si; GdiplusStartup(&m_gdiplusToken, &si, nullptr);
 
-    WNDCLASSEX wc = { sizeof(WNDCLASSEX) };
+    WNDCLASSEXW wc = { sizeof(WNDCLASSEXW) };
     wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = OverlayWndProc;
     wc.hInstance = GetModuleHandle(nullptr);
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     wc.lpszClassName = L"L2CVBotOverlayWnd";
-    RegisterClassEx(&wc);
+    RegisterClassExW(&wc);
 
     RECT tr; GetWindowRect(m_target, &tr);
 
-    m_hwnd = CreateWindowEx(
+    m_hwnd = CreateWindowExW(
         WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOPMOST | WS_EX_NOACTIVATE,
         wc.lpszClassName,
         L"L2-Bot-Overlay",
@@ -123,12 +123,8 @@ void DebugOverlay::recreateBackbuffer()
 
 void DebugOverlay::begin()
 {
-    // clear with transparent
-    HBRUSH brush = CreateSolidBrush(RGB(0,0,0));
-    RECT r{0,0,m_size.cx,m_size.cy};
-    BLENDFUNCTION bf{ AC_SRC_OVER, 0, 0, AC_SRC_ALPHA };
-    // Clear alpha by painting with alpha=0 using GDI+
-    m_gfx->Clear(Color(0,0,0,0));
+    // clear with transparent using GDI+
+    m_gfx->Clear(Gdiplus::Color(0,0,0,0));
 }
 
 void DebugOverlay::end()
@@ -142,7 +138,7 @@ void DebugOverlay::end()
 void DebugOverlay::drawRect(RECT r, Color color, int thickness)
 {
     if (!m_gfx) return;
-    Pen pen(Color(color.a, color.r, color.g, color.b), static_cast<REAL>(thickness));
+    Pen pen(Gdiplus::Color(color.a, color.r, color.g, color.b), static_cast<REAL>(thickness));
     m_gfx->DrawRectangle(&pen, static_cast<REAL>(r.left), static_cast<REAL>(r.top),
                          static_cast<REAL>(r.right - r.left), static_cast<REAL>(r.bottom - r.top));
 }
@@ -150,10 +146,10 @@ void DebugOverlay::drawRect(RECT r, Color color, int thickness)
 void DebugOverlay::drawText(int x, int y, const std::wstring &text, Color color, float size)
 {
     if (!m_gfx) return;
-    FontFamily ff(L"Segoe UI");
-    Font font(&ff, size, FontStyleRegular, UnitPixel);
-    SolidBrush brush(Color(color.a, color.r, color.g, color.b));
-    m_gfx->DrawString(text.c_str(), -1, &font, PointF(static_cast<REAL>(x), static_cast<REAL>(y)), &brush);
+    Gdiplus::FontFamily ff(L"Segoe UI");
+    Gdiplus::Font font(&ff, size, Gdiplus::FontStyleRegular, Gdiplus::UnitPixel);
+    Gdiplus::SolidBrush brush(Gdiplus::Color(color.a, color.r, color.g, color.b));
+    m_gfx->DrawString(text.c_str(), -1, &font, Gdiplus::PointF(static_cast<REAL>(x), static_cast<REAL>(y)), &brush);
 }
 
 

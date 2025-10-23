@@ -11,7 +11,11 @@ class Brain
 {
 public:
     int m_search_attempts = 7;
+    bool m_attack_mode_enabled = true;  // Enable automatic attack mode by default
+    int m_flee_hp_threshold = 30;       // Flee when HP drops below this %
+    int m_restore_hp_threshold = 70;   // Restore HP when below this %
 
+    
     Brain(::Eyes &eyes, ::Hands &hands) :
         m_state             {State::NextTarget},
         m_previous_state    {State::Undefined},
@@ -28,6 +32,10 @@ public:
 
     void Init();
     void Process();
+    
+    // Attack mode controls
+    void ToggleAttackMode()                 { m_attack_mode_enabled = !m_attack_mode_enabled; }
+    bool IsAttackModeEnabled() const        { return m_attack_mode_enabled; }
 
 private:
     enum class State
@@ -38,7 +46,8 @@ private:
         FarSearch   = 3,
         Check       = 4,
         Attack      = 5,
-        PickUp      = 6
+        PickUp      = 6,
+        Flee        = 7
     };
 
     State m_state;

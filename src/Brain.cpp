@@ -35,20 +35,30 @@ void Brain::Process()
     if (m_me.has_value()) {
         const auto me = m_me.value();
 
-        if (me.hp < 70 && !LOCKED(1000)) {
-            std::cout << "Restore HP" << std::endl;
+        // Emergency flee if HP is critically low
+        if (me.hp < m_flee_hp_threshold && !LOCKED(2000)) {
+            std::cout << "CRITICAL HP (" << me.hp << "%) - FLEEING!" << std::endl;
+            m_hands.CancelTarget();  // Cancel current target
+            m_hands.Send(500);
+            m_state = State::Flee;
+            return;  // Skip normal processing to flee immediately
+        }
+
+        // Normal HP restoration
+        if (me.hp < m_restore_hp_threshold && !LOCKED(1000)) {
+            std::cout << "Restore HP (" << me.hp << "%)" << std::endl;
             m_hands.RestoreHP();
             m_hands.Send();
         }
 
         if (me.mp < 70 && !LOCKED(1000)) {
-            std::cout << "Restore MP" << std::endl;
+            std::cout << "Restore MP (" << me.mp << "%)" << std::endl;
             m_hands.RestoreMP();
             m_hands.Send();
         }
 
         if (me.cp < 90 && !LOCKED(1000)) {
-            std::cout << "Restore CP" << std::endl;
+            std::cout << "Restore CP (" << me.cp << "%)" << std::endl;
             m_hands.RestoreCP();
             m_hands.Send();
         }
@@ -56,7 +66,8 @@ void Brain::Process()
 
     const auto target = m_target.value_or(::Eyes::Target{});
 
-    if (target.hp > 0) {
+    // Only attack if attack mode is enabled and we have a valid target
+    if (target.hp > 0 && m_attack_mode_enabled) {
         m_state = State::Attack;
     }
 
@@ -157,6 +168,25 @@ void Brain::Process()
         m_hands.PickUp();
         m_hands.Send();
         m_state = State::NextTarget;
+    } else if (m_state == State::Flee) {
+        std::cout << "FLEEING - Moving away from danger!" << std::endl;
+        
+        // Move character away from current position (simple flee strategy)
+        const auto center = m_hands.WindowCenter();
+        m_hands.MoveMouseTo({center.x - 100, center.y - 100});  // Move northwest
+        m_hands.Send(1000);
+        m_hands.LeftMouseButtonClick();  // Click to move
+        m_hands.Send(3000);  // Wait while moving
+        
+        // Try to restore HP while fleeing
+        if (m_me.has_value() && m_me.value().hp < m_restore_hp_threshold) {
+            m_hands.RestoreHP();
+            m_hands.Send(1000);
+        }
+        
+        // Return to normal operation after fleeing
+        m_state = State::NextTarget;
+        m_first_attack = true;  // Reset attack state
     }
 }
 

@@ -69,23 +69,29 @@ void Intercept::SendMouseButtonEvent(MouseButtonEvent event)
 
 void Intercept::SendKeyboardKeyEvent(int code, KeyboardKeyEvent event, bool e0, bool e1)
 {
+    // Treat 'code' as a hardware scan code and send using KEYEVENTF_SCANCODE.
+    // This avoids layout/Fn issues and ensures Function keys are delivered.
     INPUT input = {};
     input.type = INPUT_KEYBOARD;
-    input.ki.wVk = static_cast<WORD>(code);
-    input.ki.wScan = MapVirtualKey(code, MAPVK_VK_TO_VSC);
-    input.ki.dwFlags = (event == KeyboardKeyEvent::Up) ? KEYEVENTF_KEYUP : 0;
-    
+    input.ki.wVk = 0; // using scancode path
+    input.ki.wScan = static_cast<WORD>(code);
+    input.ki.dwFlags = KEYEVENTF_SCANCODE | ((event == KeyboardKeyEvent::Up) ? KEYEVENTF_KEYUP : 0);
+
     if (e0) {
         input.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
     }
-    
+
     SendInput(1, &input, sizeof(INPUT));
 }
 
 bool Intercept::KeyboardKeyPressed(int code) const
 {
-    // Use GetAsyncKeyState for immediate key state checking
-    return (GetAsyncKeyState(code) & 0x8000) != 0;
+    // Convert scan code to virtual-key for GetAsyncKeyState
+    UINT vk = MapVirtualKey(static_cast<UINT>(code), MAPVK_VSC_TO_VK);
+    if (vk == 0) {
+        return false;
+    }
+    return (GetAsyncKeyState(static_cast<int>(vk)) & 0x8000) != 0;
 }
 
 bool Intercept::MouseButtonPressed(MouseButton button) const

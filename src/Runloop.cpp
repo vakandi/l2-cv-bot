@@ -81,10 +81,14 @@ void Runloop::Run()
                 overlayVisible = !overlayVisible;
                 m_overlay.setVisible(overlayVisible);
             }
-            if (m_hands.KeyboardKeyPressed(::Input::KeyboardKey::F10)) {
-                overlayClickThrough = !overlayClickThrough;
-                m_overlay.setClickThrough(overlayClickThrough);
-            }
+                   if (m_hands.KeyboardKeyPressed(::Input::KeyboardKey::F10)) {
+                       overlayClickThrough = !overlayClickThrough;
+                       m_overlay.setClickThrough(overlayClickThrough);
+                   }
+                   if (m_hands.KeyboardKeyPressed(::Input::KeyboardKey::F11)) {
+                       m_brain.ToggleAttackMode();
+                       std::cout << "Attack mode: " << (m_brain.IsAttackModeEnabled() ? "ENABLED" : "DISABLED") << std::endl;
+                   }
 
             m_overlay.begin();
             DrawOverlay();
@@ -318,7 +322,12 @@ void Runloop::DrawOverlay()
 
     int textY = 10;
     m_overlay.drawText(10, textY, L"L2 CV Bot", {0,255,0,255}, 16.0f); textY += 20;
-    m_overlay.drawText(10, textY, L"F9: overlay  F10: click-through", {255,255,0,255}, 12.0f); textY += 18;
+    
+    // Attack mode status
+    std::wstring attackStatus = m_brain.IsAttackModeEnabled() ? L"ATTACK MODE: ON" : L"ATTACK MODE: OFF";
+    m_overlay.drawText(10, textY, attackStatus, m_brain.IsAttackModeEnabled() ? DebugOverlay::Color{0, 255, 0, 255} : DebugOverlay::Color{255, 0, 0, 255}, 14.0f); textY += 18;
+    
+    m_overlay.drawText(10, textY, L"F9: overlay  F10: click-through  F11: attack", {255,255,0,255}, 12.0f); textY += 18;
 
     if (meOpt.has_value()) {
         auto s = L"HP " + std::to_wstring(meOpt->hp) + L"%  MP " + std::to_wstring(meOpt->mp) + L"%  CP " + std::to_wstring(meOpt->cp) + L"%";
@@ -420,4 +429,7 @@ void Runloop::ConfigureHands()
 void Runloop::ConfigureBrain()
 {
     m_brain.m_search_attempts = m_options.Int("--search_attempts", m_brain.m_search_attempts);
+    m_brain.m_attack_mode_enabled = m_options.Bool("--attack_mode", m_brain.m_attack_mode_enabled);
+    m_brain.m_flee_hp_threshold = m_options.Int("--flee_hp_threshold", m_brain.m_flee_hp_threshold);
+    m_brain.m_restore_hp_threshold = m_options.Int("--restore_hp_threshold", m_brain.m_restore_hp_threshold);
 }

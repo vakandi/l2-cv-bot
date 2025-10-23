@@ -83,8 +83,17 @@ public:
     int m_target_hp_max_height              = 7;
     int m_target_hp_min_width               = m_my_bar_min_width;
     int m_target_hp_max_width               = m_my_bar_max_width;
-    cv::Scalar m_target_hp_color_from_hsv   = {0, 100, 100};
-    cv::Scalar m_target_hp_color_to_hsv     = {2, 220, 140};
+    cv::Scalar m_target_hp_color_from_hsv   = {0, 200, 100};   // Red/pink HP bar color
+    cv::Scalar m_target_hp_color_to_hsv     = {10, 255, 180};  // Red/pink HP bar color
+
+    // Auto-calibration state for target HP bar (HSV hue-focused)
+    bool m_target_hp_calibrated             = false;
+    int  m_target_hp_hue_center             = -1;   // 0..179 (OpenCV HSV)
+    int  m_target_hp_hue_span               = 10;   // +/- range around center
+    int  m_target_hp_min_s                  = 80;   // saturation gate
+    int  m_target_hp_min_v                  = 120;  // value gate
+    int  m_target_hp_calibrate_every        = 30;   // frames
+    double m_target_hp_ema                  = -1.0; // smoothed percent
 
     Eyes() :
         m_hsv_frames{},
@@ -135,4 +144,10 @@ private:
     );
 
     static std::uint32_t Hash(const cv::Mat &image);
+
+    // Auto-calibration helpers
+    void CalibrateTargetHpColor(const cv::Mat &roiHsv);
+    cv::Mat MakeHpMask(const cv::Mat &roiHsv) const;
+    int ComputeHpPercentFromMask(const cv::Mat &mask, const cv::Rect &roi) const;
+    int ComputeHpPercentRunLength(const cv::Mat &mask) const;
 };

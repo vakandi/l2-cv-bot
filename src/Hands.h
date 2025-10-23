@@ -50,11 +50,11 @@ public:
         ResetCamera();
     }
 
+    Point WindowCenter() const
+        { return {m_window_rect.x + m_window_rect.width / 2, m_window_rect.y + m_window_rect.height / 2}; }
+
 private:
     Rect m_window_rect;
 
     Point WindowPoint(const Point &point) const { return {m_window_rect.x + point.x, m_window_rect.y + point.y}; }
-
-    Point WindowCenter() const
-        { return {m_window_rect.x + m_window_rect.width / 2, m_window_rect.y + m_window_rect.height / 2}; }
 };

@@ -1,6 +1,7 @@
 #include "Eyes.h"
 
 #include <limits>
+#include <algorithm>
 
 void Eyes::Open(const cv::Mat &bgr)
 {
@@ -192,12 +193,63 @@ std::optional<Eyes::Target> Eyes::DetectTarget()
 
     Target target = {};
 
-    target.hp = CalcBarPercentValue(
-        m_hsv(m_target_hp_bar.value()),
-        m_target_hp_color_from_hsv,
-        m_target_hp_color_to_hsv,
-        true
-    );
+    // Build inset ROI to avoid borders and focus on the bar's filled strip
+    const auto bar_hsv_full = m_hsv(m_target_hp_bar.value());
+    int inset_x = bar_hsv_full.cols > 2 ? 1 : 0;
+    int roi_w   = (std::max)(1, bar_hsv_full.cols - inset_x * 2);
+    int roi_y   = bar_hsv_full.rows / 3; // center strip
+    int roi_h   = (std::max)(1, bar_hsv_full.rows / 3);
+    if (roi_y + roi_h > bar_hsv_full.rows) {
+        roi_y = (std::max)(0, bar_hsv_full.rows - roi_h);
+    }
+    cv::Rect roi_local{inset_x, roi_y, roi_w, roi_h};
+    cv::Mat roiHsv = bar_hsv_full(roi_local).clone();
+
+    // Auto-calibrate hue band periodically or on first use
+    if (!m_target_hp_calibrated || (m_frame % m_target_hp_calibrate_every) == 0) {
+        CalibrateTargetHpColor(roiHsv);
+    }
+
+    // Build mask and compute percentages
+    cv::Mat hpMask = MakeHpMask(roiHsv);
+    const int p_ratio = ComputeHpPercentFromMask(hpMask, roi_local);
+    const int p_run   = ComputeHpPercentRunLength(hpMask);
+    int p = (std::max)(p_ratio, p_run);
+
+    // Smooth result with EMA
+    m_target_hp_ema = (m_target_hp_ema < 0.0) ? p : (0.7 * m_target_hp_ema + 0.3 * p);
+    target.hp = (int)(std::round((std::min)(100.0, (std::max)(0.0, m_target_hp_ema))));
+
+        // Debug output every 30 frames
+        static int debug_frame = 0;
+        if (++debug_frame % 30 == 0) {
+            std::cout << "Target HP Bar detected: " << m_target_hp_bar.value().width << "x" << m_target_hp_bar.value().height
+                      << " at (" << m_target_hp_bar.value().x << "," << m_target_hp_bar.value().y << ") - HP: " << target.hp
+                      << "%  hueCenter=" << m_target_hp_hue_center << ", span=" << m_target_hp_hue_span
+                      << ", S>=" << m_target_hp_min_s << ", V>=" << m_target_hp_min_v
+                      << ", p_ratio=" << p_ratio << ", p_run=" << p_run << std::endl;
+            
+            // Debug: show what colors we're actually seeing in the detected area
+            if (m_target_hp_bar.has_value()) {
+                const auto& bar_rect = m_target_hp_bar.value();
+                cv::Mat bar_region = m_hsv(bar_rect);
+                cv::Mat bar_bgr;
+                cv::cvtColor(bar_region, bar_bgr, cv::COLOR_HSV2BGR);
+                
+                // Sample a few pixels from the detected bar area
+                for (int y = 0; y < std::min(3, bar_bgr.rows); y++) {
+                    for (int x = 0; x < std::min(5, bar_bgr.cols); x++) {
+                        const uchar* pixel = bar_bgr.ptr<uchar>(y) + x * 3;
+                        int b = pixel[0], g = pixel[1], r = pixel[2];
+                        std::cout << "  Pixel(" << x << "," << y << "): BGR(" << (int)b << "," << (int)g << "," << (int)r << ")";
+                        
+                        // Check if this pixel would be detected as magenta
+                        bool is_magenta = (r >= 180 && r <= 250 && g >= 0 && g <= 30 && b >= 180 && b <= 250 && r > g && b > g);
+                        std::cout << " -> " << (is_magenta ? "MAGENTA" : "NOT MAGENTA") << std::endl;
+                    }
+                }
+            }
+        }
 
     return target;
 }
@@ -256,28 +308,36 @@ std::optional<struct Eyes::MyBars> Eyes::DetectMyBars() const
 
 std::optional<cv::Rect> Eyes::DetectTargetHPBar() const
 {
-    // extract red regions with red HP bar
+    // Simple approach: just detect the red/pink HP bar color
     cv::Mat mask;
     cv::inRange(m_hsv, m_target_hp_color_from_hsv, m_target_hp_color_to_hsv, mask);
     
-    // remove noise
-    const auto kernel = cv::getStructuringElement(cv::MORPH_RECT, {25, m_target_hp_min_height});
+    // Remove noise with smaller kernel for better detection
+    const auto kernel = cv::getStructuringElement(cv::MORPH_RECT, {10, 2});
     cv::erode(mask, mask, kernel);
     cv::dilate(mask, mask, kernel);
 
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(mask, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
 
+    // Find the largest contour that matches our size criteria
+    cv::Rect best_rect;
+    int best_area = 0;
+    
     for (const auto &contour : contours) {
         const auto rect = cv::boundingRect(contour);
+        int area = rect.width * rect.height;
 
-        if (rect.height < m_target_hp_min_height || rect.height > m_target_hp_max_height ||
-            rect.width < m_target_hp_min_width || rect.width > m_target_hp_max_width
-        ) {
-            continue;
+        if (rect.height >= m_target_hp_min_height && rect.height <= m_target_hp_max_height &&
+            rect.width >= m_target_hp_min_width && rect.width <= m_target_hp_max_width &&
+            area > best_area) {
+            best_rect = rect;
+            best_area = area;
         }
-
-        return rect;
+    }
+    
+    if (best_area > 0) {
+        return best_rect;
     }
 
     return {};
@@ -396,30 +456,72 @@ int Eyes::CalcBarPercentValue(
     CV_Assert(bar.depth() == CV_8U);
     CV_Assert(bar.channels() >= 3);
 
-    const auto row = bar.ptr<uchar>(bar.rows / 2);
-    auto channel = (bar.cols - 1) * bar.channels();
-    auto cols = bar.cols;
-    auto color_found = false;
+    if (whole_bar) {
+        // For target HP bars: detect red/pink pixels based on actual photo analysis
+        int total_pixels = bar.rows * bar.cols;
+        int red_pixels = 0;
+        
+        // Debug: sample a few pixels to see what colors we're getting
+        static int debug_count = 0;
+        if (++debug_count % 100 == 0 && total_pixels > 0) {
+            const uchar* sample_row = bar.ptr<uchar>(bar.rows / 2);
+            int sample_x = bar.cols / 2;
+            int b = sample_row[sample_x * 3 + 0];
+            int g = sample_row[sample_x * 3 + 1]; 
+            int r = sample_row[sample_x * 3 + 2];
+            std::cout << "Sample pixel at center: B=" << (int)b << " G=" << (int)g << " R=" << (int)r << std::endl;
+        }
+        
+        // Count pixels that match the red/pink color range
+        // Based on photo analysis: Red pixels have R=111-171, G=23-48, B=19-34
+        for (int y = 0; y < bar.rows; y++) {
+            const uchar* row = bar.ptr<uchar>(y);
+            for (int x = 0; x < bar.cols; x++) {
+                int b = row[x * 3 + 0];  // Blue
+                int g = row[x * 3 + 1];  // Green  
+                int r = row[x * 3 + 2];  // Red
+                
+                // Detect magenta/purple HP bar pixels based on actual game colors
+                // From game logs: BGR(219,2,235), BGR(124,16,187), BGR(128,26,207)
+                // These are magenta/purple colors, not red!
+                bool is_magenta = (r >= 180 && r <= 250 &&    // Red channel: very high (magenta)
+                                  g >= 0 && g <= 30 &&        // Green channel: very low
+                                  b >= 180 && b <= 250 &&     // Blue channel: very high (magenta)
+                                  r > g && b > g);            // Red and Blue dominate Green
+                              
+                if (is_magenta) {
+                    red_pixels++;
+                }
+            }
+        }
+        
+        // Calculate percentage: red pixels / total pixels
+        if (total_pixels > 0) {
+            int percentage = (red_pixels * 100) / total_pixels;
+            if (debug_count % 100 == 0) {
+                std::cout << "Red pixels: " << red_pixels << "/" << total_pixels << " = " << percentage << "%" << std::endl;
+            }
+            return percentage;
+        }
+        return 0;
+    } else {
+        // Original algorithm for my HP/MP/CP bars (working perfectly)
+        const auto row = bar.ptr<uchar>(bar.rows / 2);
+        auto channel = (bar.cols - 1) * bar.channels();
+        auto cols = bar.cols;
 
-    // loop mid row
-    for (; channel > 0; channel -= bar.channels()) {
-        if (row[channel + 0] >= from_color[0] && row[channel + 0] <= to_color[0] &&
-            row[channel + 1] >= from_color[1] && row[channel + 1] <= to_color[1] &&
-            row[channel + 2] >= from_color[2] && row[channel + 2] <= to_color[2]
-        ) {
-            if (!whole_bar) {
+        for (; channel > 0; channel -= bar.channels()) {
+            if (row[channel + 0] >= from_color[0] && row[channel + 0] <= to_color[0] &&
+                row[channel + 1] >= from_color[1] && row[channel + 1] <= to_color[1] &&
+                row[channel + 2] >= from_color[2] && row[channel + 2] <= to_color[2]
+            ) {
                 break;
             } else {
-                color_found = true;
+                cols--;
             }
-        } else if (color_found) {
-            return 0;
-        } else {
-            cols--;
         }
+        return cols * 100 / bar.cols;
     }
-
-    return cols * 100 / bar.cols;
 }
 
 std::uint32_t Eyes::Hash(const cv::Mat &image)
@@ -433,4 +535,101 @@ std::uint32_t Eyes::Hash(const cv::Mat &image)
     }
 
     return hash;
+}
+
+void Eyes::CalibrateTargetHpColor(const cv::Mat &roiHsv)
+{
+    CV_Assert(!roiHsv.empty());
+    std::array<int, 180> hist{};
+    int considered = 0;
+
+    for (int y = 0; y < roiHsv.rows; ++y) {
+        const auto* row = roiHsv.ptr<cv::Vec3b>(y);
+        for (int x = 0; x < roiHsv.cols; ++x) {
+            const auto H = (int)row[x][0];
+            const auto S = (int)row[x][1];
+            const auto V = (int)row[x][2];
+            if (S >= m_target_hp_min_s && V >= m_target_hp_min_v) {
+                hist[H]++;
+                considered++;
+            }
+        }
+    }
+
+    const int total = roiHsv.rows * roiHsv.cols;
+    if (considered < (total * 5) / 100) {
+        // Fallback to magenta band if not enough saturated/bright pixels
+        m_target_hp_hue_center = 157; // middle of [140,175]
+        m_target_hp_hue_span   = 18;  // ~[139,175]
+        m_target_hp_calibrated = true;
+        return;
+    }
+
+    const int center = (int)std::distance(hist.begin(), std::max_element(hist.begin(), hist.end()));
+    m_target_hp_hue_center = center;
+    m_target_hp_calibrated = true;
+}
+
+cv::Mat Eyes::MakeHpMask(const cv::Mat &roiHsv) const
+{
+    CV_Assert(!roiHsv.empty());
+    // S/V gating
+    cv::Mat gateS, gateV, gateSV;
+    cv::inRange(roiHsv, cv::Scalar(0, m_target_hp_min_s, 0), cv::Scalar(179, 255, 255), gateS);
+    cv::inRange(roiHsv, cv::Scalar(0, 0, m_target_hp_min_v), cv::Scalar(179, 255, 255), gateV);
+    cv::bitwise_and(gateS, gateV, gateSV);
+
+    // Hue band(s) with wrap-around handling
+    int span = m_target_hp_hue_span;
+    int a = m_target_hp_hue_center - span;
+    int b = m_target_hp_hue_center + span;
+    cv::Mat m1, m2;
+    if (a < 0) {
+        cv::inRange(roiHsv, cv::Scalar(0, 0, 0), cv::Scalar(b, 255, 255), m1);
+        cv::inRange(roiHsv, cv::Scalar(180 + a, 0, 0), cv::Scalar(179, 255, 255), m2);
+    } else if (b > 179) {
+        cv::inRange(roiHsv, cv::Scalar(a, 0, 0), cv::Scalar(179, 255, 255), m1);
+        cv::inRange(roiHsv, cv::Scalar(0, 0, 0), cv::Scalar(b - 180, 255, 255), m2);
+    } else {
+        cv::inRange(roiHsv, cv::Scalar(a, 0, 0), cv::Scalar(b, 255, 255), m1);
+        m2 = cv::Mat::zeros(roiHsv.size(), CV_8U);
+    }
+
+    cv::Mat hueMask;
+    cv::bitwise_or(m1, m2, hueMask);
+
+    cv::Mat mask;
+    cv::bitwise_and(hueMask, gateSV, mask);
+
+    // Clean up noise slightly
+    const auto k = cv::getStructuringElement(cv::MORPH_RECT, {3, 1});
+    cv::morphologyEx(mask, mask, cv::MORPH_OPEN, k);
+    return mask;
+}
+
+int Eyes::ComputeHpPercentFromMask(const cv::Mat &mask, const cv::Rect &roi) const
+{
+    const int total = roi.width * roi.height;
+    if (total <= 0) return 0;
+    const int filled = cv::countNonZero(mask);
+    return (filled * 100) / total;
+}
+
+int Eyes::ComputeHpPercentRunLength(const cv::Mat &mask) const
+{
+    if (mask.empty()) return 0;
+    const int mid = mask.rows / 2;
+    int best = 0, cur = 0;
+    for (int x = 0; x < mask.cols; ++x) {
+        const int colNonZero = cv::countNonZero(mask.col(x));
+        const bool filled = colNonZero * 2 >= mask.rows; // >=50% of column
+        if (filled) {
+            cur++;
+            best = (std::max)(best, cur);
+        } else {
+            cur = 0;
+        }
+    }
+    if (mask.cols <= 0) return 0;
+    return (best * 100) / mask.cols;
 }
